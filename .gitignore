@@ -1,0 +1,16 @@
+*.dat
+*.lay
+*.log
+*.pdf
+*.aux
+*.gz
+*.pyc
+*.pyproj
+*.stackdump
+*.psess
+*.pyperf
+
+abstract/
+references/
+reports_deduction/
+results/
