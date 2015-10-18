@@ -9,6 +9,7 @@
 *.stackdump
 *.psess
 *.pyperf
+*.suo
 
 abstract/
 references/

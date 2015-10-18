@@ -1,10 +1,13 @@
+# use only single direction projection to solve the Lorentz problem.
 import numpy as np
 import matplotlib as mpl
 from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import matplotlib.pyplot as plt
 
-Nrho = 98
+rho_lb = 62
+rho_ub = 64
+Nrho = rho_ub - rho_lb + 1
 navg = 2 # number of segments on time interval 
 J_arr = np.zeros([Nrho, navg])
 dJdrho_arr = np.zeros([Nrho, navg])
@@ -12,14 +15,16 @@ J_arr_avg = np.zeros(Nrho)
 dJdrho_arr_avg = np.zeros(Nrho)
 rho_arr = np.zeros(Nrho)
 
-for rr in range(64,66):
+for rr in range(rho_lb, rho_ub+1):
     print(rr)
     rho = rr
     sigma = 10
     beta = 8./3.
-    T = 20
+    T = 2
+    nT = 10
     dt = 0.005
     nc =3 # number of component in u
+    nUnstable = 1 
     nn = int(T/dt/2)
     N = 2*nn + 1
     Df = np.zeros([N,3,3])
@@ -27,7 +32,7 @@ for rr in range(64,66):
     u = np.zeros([N,3])
     v = np.zeros([N,3])
     vstar = np.zeros([N,3])
-    w = np.zeros([nc,N,nc])
+    w = np.zeros([nUnstable,N,nc])
 
     # give start value, u at t=0; v*,w at t = nn
     u[0] = [-10, -10, 60]
@@ -55,61 +60,39 @@ for rr in range(64,66):
             Df[i-1] = Dftemp * dt + np.identity(3)
             drhof[i-1] = np.array([0, x*dt, 0])
 
-        ## intialize v* and w
-        #vstar[nn] = [0, 0, 0]
-        #w[0,nn] = [1, 0, 0]
-        #w[1,nn] = [0, 1, 0]
-        #w[2,nn] = [0, 0, 1]
-
-        #for i in range(nn+1, 2*nn+1):
-        #    # push forwar vstar and w
-        #    vstar[i] = np.dot(Df[i-1], vstar[i-1]) + drhof[i-1]
-        #    w[0,i] = np.dot(Df[i-1], w[0,i-1])
-        #    w[1,i] = np.dot(Df[i-1], w[1,i-1])
-        #    w[2,i] = np.dot(Df[i-1], w[2,i-1])
-        #for i in range(nn-1,-1,-1):
-        #    # push backward vstar and w
-        #    vstar[i] = np.linalg.solve(Df[i], (vstar[i+1] - drhof[i]))
-        #    w[0,i] = np.linalg.solve(Df[i], w[0,i+1])
-        #    w[1,i] = np.linalg.solve(Df[i], w[1,i+1])
-        #    w[2,i] = np.linalg.solve(Df[i], w[2,i+1])
 
         # intialize v* and w
         vstar[0] = [0, 0, 0]
-        #w[0,0] = [1, 0, 0]
-        #w[1,0] = [0, 1, 0]
-        w[2,0] = [0, 0, 1]
-        for i in range(1, 2*nn+1):
-            # push forwar vstar and w
-            vstar[i] = np.dot(Df[i-1], vstar[i-1]) + drhof[i-1]
-            #w[0,i] = np.dot(Df[i-1], w[0,i-1])
-            #w[1,i] = np.dot(Df[i-1], w[1,i-1])
-            w[2,i] = np.dot(Df[i-1], w[2,i-1])
-       
+        w[0,0] = [0, 0, 1]
 
-        # calculate M rhs lbd, and v
-        M = np.zeros([nc, nc])
-        for i in range(0, nc):
-            for j in range(0, i+1):
-                M[i,j] = np.einsum(w[i],[0,1],w[j],[0,1])
-                M[j,i] = M[i,j]
+        for iT in range(0, nT):
+            # find w
+            for i in range(1, 2*nn+1):
+                w[0,i] = np.dot(Df[i-1], w[0,i-1])
 
-        rhs = np.zeros(3)
-        #rhs[0] = np.einsum(w[0], [0,1], vstar, [0,1])
-        #rhs[1] = np.einsum(w[1], [0,1], vstar, [0,1])
-        rhs[2] = np.einsum(w[2], [0,1], vstar, [0,1])
+            # find vstar
+            for i in range(1, 2*nn+1):
+                vstar[i] = np.dot(Df[i-1], vstar[i-1]) + drhof[i-1]
 
-        #lbd = np.linalg.solve(M, rhs)
-        #v = vstar - np.einsum(lbd, [0], w, [0,1,2], [1,2])
+            # calculate M, rhs, lbd, and v
+            M = np.zeros([nUnstable, nUnstable])
+            for i in range(0, nUnstable):
+                for j in range(0, i+1):
+                    M[i,j] = np.einsum(w[i],[0,1],w[j],[0,1])
+                    M[j,i] = M[i,j]
 
-        # only 1 w
-        lbd1 = rhs[2] / M[2,2]
-        v = vstar - lbd1 * w[2]
+        rhs = np.zeros(nUnstable)
+        rhs[0] = np.einsum(w[0], [0,1], vstar, [0,1])
+        
+        lbd = np.linalg.solve(M, rhs)
+        v = vstar - np.einsum(lbd, [0], w, [0,1,2], [1,2])
+        vstar[0] = v[0]
 
-        J_arr[rr,iavg] = np.sum(u[:,2]) / N
+        # calculate rho and dJ/drho
+        J_arr[rr-rho_lb,iavg] = np.sum(u[:,2]) / N
         dJdrho = np.sum(v[:,2]) / N
-        rho_arr[rr] = rho
-        dJdrho_arr[rr,iavg] = dJdrho
+        rho_arr[rr-rho_lb] = rho
+        dJdrho_arr[rr-rho_lb,iavg] = dJdrho
 
         # use the end state as initial state of next segment
         u0 = u[-1]
