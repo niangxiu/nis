@@ -152,10 +152,25 @@ for rr in range(rho_lb, rho_ub + 1):
 #    v = vstar + np.einsum(lbd,[0], w, [0,1,2], [1,2])
        
 
+    # window function
+    def window(eta):
+        w = 2*(1 - np.cos(2 * np.pi * eta) ** 2)
+        return w
     # calculate rho and dJ/drho
     rho_arr[rr - rho_lb] = rr
     J_arr[rr - rho_lb] = np.einsum(u[:,:,2],[0,1],[]) / (nstep * nseg)
-    dJdrho_arr[rr - rho_lb] = np.einsum(v[:,:,2],[0,1],[]) / (nstep * nseg)
+    t = np.zeros([nseg*(nstep-1)+1])
+    # reshape v to [nseg*(nstep-1), nc] vector: delete duplicate
+    v_resu = np.zeros([nseg*(nstep-1)+1,nc])
+    for iseg in range(0, nseg):
+        for istep in range(0, nstep-1):
+            ii = iseg*(nstep-1) + istep
+            v_resu[ii] = v[iseg, istep]
+            t[ii] = ii * dt
+    v_resu[-1] = v[-1,-1]
+    t[-1] = nseg*(nstep-1) * dt
+    w = window(t / t[-1])
+    dJdrho_arr[rr - rho_lb] = np.einsum(v_resu[:,2],[0],w,[0],[]) / (nseg*(nstep-1)+1)
 
 
 ## plot u
