@@ -60,21 +60,22 @@ def pushSeg(nseg, nstep, nus, nc, dt, u0, vstar0, w0):
 
 
 
-rho_lb = 2
-rho_ub = 95
+rho_lb = 15
+rho_ub = 16
 Nrho = rho_ub - rho_lb + 1 # number of rho to be calculated
 J_arr = np.zeros(Nrho)
 dJdrho_arr = np.zeros(Nrho)
 rho_arr = np.zeros(Nrho)
+grow_rate_arr = np.zeros(Nrho) # the grow rate (10^*) in a time unit for w
 
 for rr in range(rho_lb, rho_ub + 1):
 
     print(rr)
     
-    nseg = 200 #number of segments on time interval
-    T = 0.5 # length of each segment
+    nseg = 20 #number of segments on time interval
+    T = 5.0 # length of each segment
     T_ps = 10 # time of pre-smoothing
-    dt = 0.005
+    dt = 0.01
     nc = 3 # number of component in u
     nus = 2 # number of unstable direction
     nstep = int(T / dt) # number of step in each time segment
@@ -98,7 +99,8 @@ for rr in range(rho_lb, rho_ub + 1):
 
     # find u, w, vstar on all segments
     [u, w, vstar] = pushSeg(nseg, nstep, nus, nc, dt,u0, vstar0, w0)
-
+    # calculate grow rate of w
+    grow_rate_arr[rr - rho_lb] = (np.log(np.linalg.norm(w[-1,-1])/np.linalg.norm(w[-1,0]))) / T
     # construct M
     M = np.zeros([(2 * nseg - 1)*nus, (2 * nseg - 1)*nus])
     rhs = np.zeros((2 * nseg - 1)*nus)
@@ -172,6 +174,15 @@ for rr in range(rho_lb, rho_ub + 1):
     w = window(t / t[-1])
     dJdrho_arr[rr - rho_lb] = np.einsum(v_resu[:,2],[0],w,[0],[]) / (nseg*(nstep-1)+1)
 
+    #plt.plot(np.abs(v_resu))
+    #plt.show()
+
+
+plt.rc('text', usetex=True)
+font = {'family' : 'normal',
+        'weight' : 'bold',
+        'size'   : 24}
+plt.rc('font', **font)
 
 ## plot u
 #mpl.rcParams['legend.fontsize'] = 10
@@ -183,18 +194,32 @@ for rr in range(rho_lb, rho_ub + 1):
 #ax.set_zlabel('z')
 #plt.show()
 
-## plot J vs r
-#plt.subplot(2,1,1)
-#plt.plot(rho_arr, J_arr)
-#plt.xlabel('rho')
-#plt.ylabel('J')
+plt.rc('text', usetex=True)
+font = {'family' : 'normal',
+        'weight' : 'bold',
+        'size'   : 24}
+plt.rc('font', **font)
+
+# plot J vs r
+plt.subplot(2,1,1)
+plt.plot(rho_arr, J_arr)
+plt.xlabel(r'$\rho$')
+plt.ylabel(r'$\langle J \rangle$')
 
 # plot dJdrho vs r
-#plt.subplot(2,1,2)
+plt.subplot(2,1,2)
 plt.plot(rho_arr, dJdrho_arr)
-plt.xlabel('rho')
-plt.ylabel('dJdrho')
+plt.xlabel(r'$\rho$')
+plt.ylabel(r'$d \langle J \rangle / d \rho$')
 plt.ylim([0,1.5])
+plt.savefig('withWindow_T500.png')
 plt.show()
+
+# plot growrate vs r
+#plt.subplot(2,1,1)
+#plt.plot(rho_arr,grow_rate_arr)
+#plt.xlabel(r'\rho')
+#plt.ylabel('growRate')
+#plt.show()
 
 print('end')
