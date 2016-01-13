@@ -84,7 +84,7 @@ def pushSeg(nseg, nstep, nus, nc, dt, u0, vstar0, w0):
 
 
 rho_lb = 1
-rho_ub = 100
+rho_ub = 40
 nseg = 50 #number of segments on time interval
 T_seg = 2 # length of each segment
 rho = 0 # make a global variable
@@ -102,7 +102,7 @@ for rho in range(rho_lb, rho_ub + 1):
     print(rho)
     
     T_ps = 10 # time of pre-smoothing
-    dt = 0.005
+    dt = 0.01
     nc = 3 # number of component in u
     nus = 2 # number of unstable direction
     nstep = int(T_seg / dt) # number of step in each time segment
@@ -128,6 +128,8 @@ for rho in range(rho_lb, rho_ub + 1):
 
     # find u, w, vstar on all segments
     [u, w, vstar, w_perp, vstar_perp, f] = pushSeg(nseg, nstep, nus, nc, dt,u0, vstar0, w0)
+    w_perp = w # just for applying window!!!
+    vstar_perp = vstar
     # calculate grow rate of w
     grow_rate_arr[rho - rho_lb] = (np.log(np.linalg.norm(w[-1,-1]) / np.linalg.norm(w[-1,0]))) / T_seg
     # construct M
@@ -188,12 +190,7 @@ for rho in range(rho_lb, rho_ub + 1):
     for iseg in range(0, nseg):
         for i in range(0, nstep):
             ksi[iseg,i] = np.dot(v[iseg, i], f[iseg, i]) / np.dot(f[iseg, i], f[iseg, i])
-       
 
-    # window function
-    def window(eta):
-        w = 2 * (1 - np.cos(2 * np.pi * eta) ** 2)
-        return w
     # calculate rho and dJ/drho
     rho_arr[rho - rho_lb] = rho
     J_arr[rho - rho_lb] = np.einsum(u[:,:,2],[0,1],[]) / (nstep * nseg)
@@ -220,30 +217,35 @@ for rho in range(rho_lb, rho_ub + 1):
     f_resu[-1] = f[-1,-1]
     ksi_resu[-1] = ksi[-1,-1]
 
-    # apply windowing
+    # window function
+    def window(eta):
+        w = 2 * (1 - np.cos(np.pi * eta) ** 2)
+        return w
+
+    # get window
     T_total = nseg * (nstep - 1) * dt
     t[-1] = T_total
-    
-    ## with window
-    #wdw = window(t / T_total)    
-    #dJdrho_arr[rho - rho_lb] = np.einsum(v_resu[:,2],[0],wdw,[0],[]) / (nseg * (nstep - 1) + 1) \
-    #                        - (ksi_resu[-1]*u[-1,-1,2] -  ksi_resu[0]*u[0,0,2]) / T_total \
-    #                        + (ksi_resu[-1] - ksi_resu[0]) * np.sum(u[:,:,2]) / (nseg * (nstep - 1) + 1) / T_total
+    wdw = window(t / T_total)
 
-    ## with dilation
-    #dJdrho_arr[rho - rho_lb]= np.sum(v_resu_perp[:,2]) / (nseg * (nstep - 1) + 1) \
-    #                        - (ksi_resu[-1] * u_resu[-1,2] -  ksi_resu[0] * u_resu[0,2]) / T_total \
-    #                        + (ksi_resu[-1] - ksi_resu[0]) * np.sum(u_resu[:,2]) / (nseg * (nstep - 1) + 1) / T_total \
-    #                        + np.sum(f_resu[:,2] * ksi_resu) / (nseg * (nstep - 1) + 1)  
-    
-    # with dilation, with special care on fixed point # no done
+    #plt.plot(wdw)
+    #plt.show()
+
+    # with window    
     if np.sum((u_resu[-1000:,2] -np.average(u_resu[-1000:,2]))**2)  < 1e-6 * np.sum(u_resu[-1000:,2] **2):
         dJdrho_arr[rho - rho_lb] = v_resu[-1,2]
-    else:
-        dJdrho_arr[rho - rho_lb]= np.sum(v_resu_perp[:,2]) / (nseg * (nstep - 1) + 1) \
-                            - (ksi_resu[-1] * u_resu[-1,2] -  ksi_resu[0] * u_resu[0,2]) / T_total \
-                            + (ksi_resu[-1] - ksi_resu[0]) * np.sum(u_resu[:,2]) / (nseg * (nstep - 1) + 1) / T_total \
-                            + np.sum(f_resu[:,2] * ksi_resu) / (nseg * (nstep - 1) + 1)   
+    else:    
+        dJdrho_arr[rho - rho_lb] = np.einsum(v_resu[:,2],[0],wdw,[0],[]) / (nseg * (nstep - 1) + 1) \
+                            - (ksi_resu[-1]*u[-1,-1,2] -  ksi_resu[0]*u[0,0,2]) / T_total \
+                            + (ksi_resu[-1] - ksi_resu[0]) * np.sum(u[:,:,2]) / (nseg * (nstep - 1) + 1) / T_total
+    
+    ## with dilation, with special care on fixed point # no done
+    #if np.sum((u_resu[-1000:,2] -np.average(u_resu[-1000:,2]))**2)  < 1e-6 * np.sum(u_resu[-1000:,2] **2):
+    #    dJdrho_arr[rho - rho_lb] = v_resu[-1,2]
+    #else:
+    #    dJdrho_arr[rho - rho_lb]= np.sum(v_resu_perp[:,2]) / (nseg * (nstep - 1) + 1) \
+    #                        - (ksi_resu[-1] * u_resu[-1,2] -  ksi_resu[0] * u_resu[0,2]) / T_total \
+    #                        + (ksi_resu[-1] - ksi_resu[0]) * np.sum(u_resu[:,2]) / (nseg * (nstep - 1) + 1) / T_total \
+    #                        + np.sum(f_resu[:,2] * ksi_resu) / (nseg * (nstep - 1) + 1)   
     pass                       
 
     
