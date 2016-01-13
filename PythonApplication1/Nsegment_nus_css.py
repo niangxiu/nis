@@ -83,9 +83,9 @@ def pushSeg(nseg, nstep, nus, nc, dt, u0, vstar0, w0):
 
 
 
-rho_lb = 45
+rho_lb = 2
 rho_ub = 76
-nseg = 40 #number of segments on time interval
+nseg = 100 #number of segments on time interval
 T_seg = 3 # length of each segment
 rho = 0 # make a global variable
 sigma = 10
@@ -171,9 +171,9 @@ for rho in range(rho_lb, rho_ub + 1):
     #plt.spy(M)
     #plt.show()
 
-    lbd = np.linalg.solve(M, rhs)
-    #lbd,temp = np.linalg.lstsq(M, rhs)
-    lbd = lbd[:nseg * nus]
+    #lbd = np.linalg.solve(M, rhs)
+    lbd = np.linalg.lstsq(M, rhs)
+    lbd = lbd[0][:nseg * nus]
     lbd = lbd.reshape([nseg, nus])
 
     # calculate v
@@ -204,14 +204,17 @@ for rho in range(rho_lb, rho_ub + 1):
     v_resu_perp = np.zeros_like(v_resu)
     f_resu = np.zeros_like(v_resu)
     ksi_resu = np.zeros([nseg * (nstep - 1) + 1])    
+    u_resu = np.zeros_like(v_resu)
     for iseg in range(0, nseg):
         for istep in range(0, nstep - 1):
             ii = iseg * (nstep - 1) + istep
+            u_resu[ii] = u[iseg, istep]
             v_resu[ii] = v[iseg, istep]
             v_resu_perp[ii] = v_perp[iseg, istep]
             f_resu[ii] = f[iseg, istep]
             ksi_resu[ii] = ksi[iseg, istep]
             t[ii] = ii * dt
+    u_resu[-1] = u[-1,-1]
     v_resu[-1] = v[-1,-1]
     v_resu_perp[-1] = v_perp[-1,-1]
     f_resu[-1] = f[-1,-1]
@@ -227,12 +230,21 @@ for rho in range(rho_lb, rho_ub + 1):
     #                        - (ksi_resu[-1]*u[-1,-1,2] -  ksi_resu[0]*u[0,0,2]) / T_total \
     #                        + (ksi_resu[-1] - ksi_resu[0]) * np.sum(u[:,:,2]) / (nseg * (nstep - 1) + 1) / T_total
 
-    # with dilation
-    dJdrho_arr[rho - rho_lb]= np.sum(v_resu_perp[:,2]) / (nseg * (nstep - 1) + 1) \
-                            - (ksi_resu[-1]*u[-1,-1,2] -  ksi_resu[0]*u[0,0,2]) / T_total \
-                            + (ksi_resu[-1] - ksi_resu[0]) * np.sum(u[:,:,2]) / (nseg * (nstep - 1) + 1) / T_total \
-                            + np.sum(f_resu[:,2] * ksi_resu) / (nseg * (nstep - 1) + 1)  
-                           
+    ## with dilation
+    #dJdrho_arr[rho - rho_lb]= np.sum(v_resu_perp[:,2]) / (nseg * (nstep - 1) + 1) \
+    #                        - (ksi_resu[-1] * u_resu[-1,2] -  ksi_resu[0] * u_resu[0,2]) / T_total \
+    #                        + (ksi_resu[-1] - ksi_resu[0]) * np.sum(u_resu[:,2]) / (nseg * (nstep - 1) + 1) / T_total \
+    #                        + np.sum(f_resu[:,2] * ksi_resu) / (nseg * (nstep - 1) + 1)  
+    
+    # with dilation, with special care on fixed point # no done
+    if np.sum((u_resu[-1000:,2] -np.average(u_resu[-1000:,2]))**2)  < 1e-3 * np.sum(u_resu[-1000:,2] **2):
+        dJdrho_arr[rho - rho_lb] = v_resu[-1,2]
+    else:
+        dJdrho_arr[rho - rho_lb]= np.sum(v_resu_perp[:,2]) / (nseg * (nstep - 1) + 1) \
+                            - (ksi_resu[-1] * u_resu[-1,2] -  ksi_resu[0] * u_resu[0,2]) / T_total \
+                            + (ksi_resu[-1] - ksi_resu[0]) * np.sum(u_resu[:,2]) / (nseg * (nstep - 1) + 1) / T_total \
+                            + np.sum(f_resu[:,2] * ksi_resu) / (nseg * (nstep - 1) + 1)   
+    pass                       
 
     
     ## plot u
@@ -257,7 +269,7 @@ for rho in range(rho_lb, rho_ub + 1):
 plt.rc('text', usetex=True)
 font = {'family' : 'normal',
         'weight' : 'bold',
-        'size'   : 24}
+        'size'   : 16}
 plt.rc('font', **font)
 
 # plot J vs r
@@ -271,7 +283,7 @@ plt.subplot(2,1,2)
 plt.plot(rho_arr, dJdrho_arr)
 plt.xlabel(r'$\rho$')
 plt.ylabel(r'$d \langle J \rangle / d \rho$')
-plt.ylim([0,2.5])
+plt.ylim([0,2.0])
 plt.savefig('withDilation_T2500.png')
 plt.show()
 
