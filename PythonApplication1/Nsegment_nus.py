@@ -4,10 +4,19 @@ import matplotlib as mpl
 from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import matplotlib.pyplot as plt
+import timeit
+#from scipy.sparse import csr_matrix
+from parameters import *
 
+startTime = timeit.timeit()
+
+# window function
+def window(eta):
+    w = 2*(1 - np.cos(np.pi * eta) ** 2) 
+    return w
+
+# For lorentz problem: find u, w and vstar on each segment  
 def pushSeg(nseg, nstep, nus, nc, dt, u0, vstar0, w0):
-    # For lorentz problem
-    # find u, w and vstar on each segment
     rho = rr
     sigma = 10
     beta = 8. / 3.
@@ -60,29 +69,30 @@ def pushSeg(nseg, nstep, nus, nc, dt, u0, vstar0, w0):
 
 
 
-rho_lb = 15
-rho_ub = 16
-Nrho = rho_ub - rho_lb + 1 # number of rho to be calculated
 J_arr = np.zeros(Nrho)
 dJdrho_arr = np.zeros(Nrho)
 rho_arr = np.zeros(Nrho)
-grow_rate_arr = np.zeros(Nrho) # the grow rate (10^*) in a time unit for w
 
 for rr in range(rho_lb, rho_ub + 1):
-
     print(rr)
-    
-    nseg = 20 #number of segments on time interval
-    T = 5.0 # length of each segment
-    T_ps = 10 # time of pre-smoothing
-    dt = 0.01
-    nc = 3 # number of component in u
-    nus = 2 # number of unstable direction
-    nstep = int(T / dt) # number of step in each time segment
+    T_total = 100
+#T_total_array = [10]    # 10, 20, 50, 100, 200, 500,
+#deviation = np.zeros(len(T_total_array)) # standard deviation for different T_total
+#for i_T in range(0,len(T_total_array)):
+#    T_total = T_total_array[i_T]
+#    djdrho_4deviation = np.zeros(100)
+
+    #for i_trajec in range(0,100):
+    #    print(i_T, i_trajec)
+    #    rr = 28
+
     v = np.zeros([nseg, nstep, nc])
     
     #  get u0, vstar0, w0 for pre-smoothing
-    u0 = [-10, -10, 60]
+    u0 =  [-10, -10, 60]
+    #u0[0] =  (np.random.rand()-0.5) * 40 
+    #u0[1] =  (np.random.rand()-0.5) * 40 
+    #u0[2] =  (np.random.rand()-0.5) * 40 + 20
     vstar0 = [0, 0, 0]
     w0 = np.zeros([nus,nc])
     for ius in range(0,nus):
@@ -96,11 +106,9 @@ for rr in range(rho_lb, rho_ub + 1):
     vstar0 = vstar_ps[-1,0]
     w0 = w_ps[-1,0]
 
-
     # find u, w, vstar on all segments
     [u, w, vstar] = pushSeg(nseg, nstep, nus, nc, dt,u0, vstar0, w0)
-    # calculate grow rate of w
-    grow_rate_arr[rr - rho_lb] = (np.log(np.linalg.norm(w[-1,-1])/np.linalg.norm(w[-1,0]))) / T
+
     # construct M
     M = np.zeros([(2 * nseg - 1)*nus, (2 * nseg - 1)*nus])
     rhs = np.zeros((2 * nseg - 1)*nus)
@@ -142,6 +150,7 @@ for rr in range(rho_lb, rho_ub + 1):
     #plt.spy(M)
     #plt.show()
 
+    #M = csr_matrix(M)
     lbd = np.linalg.solve(M, rhs)
     lbd = lbd[:nseg*nus]
     lbd = lbd.reshape([nseg, nus])
@@ -154,14 +163,13 @@ for rr in range(rho_lb, rho_ub + 1):
 #    v = vstar + np.einsum(lbd,[0], w, [0,1,2], [1,2])
        
 
-    # window function
-    def window(eta):
-        w = 2*(1 - np.cos(2 * np.pi * eta) ** 2)
-        return w
+    
+
     # calculate rho and dJ/drho
     rho_arr[rr - rho_lb] = rr
     J_arr[rr - rho_lb] = np.einsum(u[:,:,2],[0,1],[]) / (nstep * nseg)
     t = np.zeros([nseg*(nstep-1)+1])
+    
     # reshape v to [nseg*(nstep-1), nc] vector: delete duplicate
     v_resu = np.zeros([nseg*(nstep-1)+1,nc])
     for iseg in range(0, nseg):
@@ -171,55 +179,115 @@ for rr in range(rho_lb, rho_ub + 1):
             t[ii] = ii * dt
     v_resu[-1] = v[-1,-1]
     t[-1] = nseg*(nstep-1) * dt
-    w = window(t / t[-1])
-    dJdrho_arr[rr - rho_lb] = np.einsum(v_resu[:,2],[0],w,[0],[]) / (nseg*(nstep-1)+1)
+    win = window(t / t[-1])
+    dJdrho_arr[rr - rho_lb] = np.einsum(v_resu[:,2],[0],win,[0],[]) / (nseg*(nstep-1)+1)
+    
+    # plot setting
+    plt.rc('text', usetex=True)
+    font = {'family' : 'normal',
+            'weight' : 'bold',
+            'size'   : 36}
+    plt.rc('font', **font)
 
-    #plt.plot(np.abs(v_resu))
+    # plot u
+    fig = plt.figure(figsize = (20,20))
+    ax = Axes3D(fig)
+    u = np.squeeze(u)
+    u_resu = np.zeros([nseg*(nstep-1)+1,nc])
+    for iseg in range(0, nseg):
+        for istep in range(0, nstep-1):
+            ii = iseg*(nstep-1) + istep
+            u_resu[ii] = u[iseg, istep]
+    u_resu[-1] = v[-1,-1]
+    u_resu = u_resu.T
+    ax.plot(u_resu[0],u_resu[1],u_resu[2])
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_zlabel('z')
+    plt.savefig('lorenzU3d')
+    plt.close(fig)
+
+    # plot vstar
+    # reshape vstar to [nseg*(nstep-1), nc] vector: delete duplicate
+    plt.rc('text', usetex=True)
+    font = {'family' : 'normal',
+            'weight' : 'bold',
+            'size'   : 32}
+    plt.rc('font', **font)
+    vstar_ = np.zeros([nseg*(nstep-1)+1,nc])
+    w1_ = np.zeros([nseg*(nstep-1)+1,nc])
+    for iseg in range(0, nseg):
+        for istep in range(0, nstep-1):
+            ii = iseg*(nstep-1) + istep
+            vstar_[ii] = vstar[iseg, istep]
+            w1_[ii] = w[iseg, istep, 1]
+    vstar_[-1] = v[-1,-1]
+    fig = plt.figure(figsize = (15,10))
+    ax = fig.add_subplot(1,1,1)
+    ax.semilogy(t,vstar_[:,2])
+    ax.minorticks_off()
+    ax.set_yticks([10**0,10**10,10**20,10**30,10**40])   
+    plt.savefig('LorenzInstantDerivative.png')
+    plt.close(fig)
+
+    # plot v
+    fig = plt.figure(figsize = (20,10))
+    ax = fig.add_subplot(111)
+    ax.plot(t, v_resu[:,2])
+    plt.savefig('LorenzV')
+    plt.close(fig)    
+
+    ## plot some debug info
+    #plt.plot(np.linalg.norm(v_resu, axis=1))
+    #plt.show()
+    #plt.plot(w)
     #plt.show()
 
+    #djdrho_4deviation[i_trajec] = dJdrho_arr[rr - rho_lb]
+    # deviation[i_T] = np.std(djdrho_4deviation)
+
+
+
 
 plt.rc('text', usetex=True)
 font = {'family' : 'normal',
         'weight' : 'bold',
-        'size'   : 24}
-plt.rc('font', **font)
-
-## plot u
-#mpl.rcParams['legend.fontsize'] = 10
-#fig = plt.figure()
-#ax = fig.gca(projection = '3d')
-#ax.plot(u[:,0],u[:,1],u[:,2])
-#ax.set_xlabel('x')
-#ax.set_ylabel('y')
-#ax.set_zlabel('z')
-#plt.show()
-
-plt.rc('text', usetex=True)
-font = {'family' : 'normal',
-        'weight' : 'bold',
-        'size'   : 24}
+        'size'   : 32}
 plt.rc('font', **font)
 
 # plot J vs r
-plt.subplot(2,1,1)
+#plt.subplot(2,1,1)
+fig = plt.figure(figsize=(15,10))
 plt.plot(rho_arr, J_arr)
-plt.xlabel(r'$\rho$')
-plt.ylabel(r'$\langle J \rangle$')
+#plt.ylabel(r'$\overline{ J }$')
+plt.savefig('J.png')
+plt.close(fig)
 
 # plot dJdrho vs r
-plt.subplot(2,1,2)
+#plt.subplot(2,1,2)
+fig = plt.figure(figsize=(15,10))
 plt.plot(rho_arr, dJdrho_arr)
-plt.xlabel(r'$\rho$')
-plt.ylabel(r'$d \langle J \rangle / d \rho$')
-plt.ylim([0,1.5])
-plt.savefig('withWindow_T500.png')
-plt.show()
+#plt.xlabel(r'$\rho$')
+#plt.ylabel(r'$d \overline{J} / d \rho$')
+        plt.ylim([0,2.0])
+        plt.savefig('dJdrho.png')
+        plt.close(fig)
 
-# plot growrate vs r
-#plt.subplot(2,1,1)
-#plt.plot(rho_arr,grow_rate_arr)
+    # plot growrate vs r
+    #plt.subplot(2,1,1)
+    #plt.plot(rho_arr,grow_rate_arr)
 #plt.xlabel(r'\rho')
 #plt.ylabel('growRate')
 #plt.show()
 
-print('end')
+## plot deviation
+#plt.loglog(T_total_array, deviation, linestyle='None', marker='.', markersize=10)
+#plt.xlabel(r'$T$')
+#plt.ylabel(r'std($d \langle J \rangle / d \rho$)')
+
+#plt.show()
+
+
+#endTime = timeit.timeit()
+#print endTime - startTime
+#print('end')

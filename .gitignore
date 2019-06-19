@@ -10,6 +10,8 @@
 *.psess
 *.pyperf
 *.suo
+*.sln
+*.png
 
 abstract/
 references/
