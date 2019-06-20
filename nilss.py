@@ -6,7 +6,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
     
 
-def pushSeg(nseg, nstep, nus, nc, dt, u0, vstar0, w0, rho, integrator, dudt):
+def pushSeg(nseg, nstep, nus, nc, dt, u0, vstar0, w0, s, integrator, dudt):
     # For lorentz problem
     # find u, w and vstar on each segment
 
@@ -26,9 +26,9 @@ def pushSeg(nseg, nstep, nus, nc, dt, u0, vstar0, w0, rho, integrator, dudt):
     for iseg in range(0, nseg):
         for istep in range(0, nstep-1):
             u[iseg, istep+1], w[iseg, istep+1], vstar[iseg,istep+1]\
-                = integrator(u[iseg, istep], w[iseg, istep], vstar[iseg, istep], rho)
+                = integrator(u[iseg, istep], w[iseg, istep], vstar[iseg, istep], s)
         for istep in range(0, nstep):
-            f[iseg, istep] = dudt(u[iseg, istep], rho)
+            f[iseg, istep] = dudt(u[iseg, istep], s)
 
 
         # get u, and renormalize v* and w for next segment
@@ -53,10 +53,11 @@ def pushSeg(nseg, nstep, nus, nc, dt, u0, vstar0, w0, rho, integrator, dudt):
             for ius in range(0, nus):
                 w_perp[iseg, i, ius] = w[iseg, i,ius] - np.dot(w[iseg, i, ius], f[iseg, i]) / np.dot(f[iseg, i], f[iseg, i]) * f[iseg, i]
 
+
     return [u, w, vstar, w_perp, vstar_perp, f]
 
 
-def nilss(dt, nseg, T_seg, T_ps, u0, nus, rho, integrator, dudt):
+def nilss(dt, nseg, T_seg, T_ps, u0, nus, s, integrator, dudt):
 
 
     nc = len(u0)
@@ -74,7 +75,7 @@ def nilss(dt, nseg, T_seg, T_ps, u0, nus, rho, integrator, dudt):
         w0[ius] = w0[ius] / np.linalg.norm(w0[ius])
     # push forward u to a stable attractor
     nseg_ps = int(T_ps / dt / nstep)
-    [u_ps, w_ps, vstar_ps, temp1, temp2, temp3] = pushSeg(nseg_ps, nstep, nus, nc, dt, u0, vstar0, w0, rho, integrator, dudt)
+    [u_ps, w_ps, vstar_ps, temp1, temp2, temp3] = pushSeg(nseg_ps, nstep, nus, nc, dt, u0, vstar0, w0, s, integrator, dudt)
     # get initial value for later integration
     u0 = u_ps[-1,0]
     vstar0 = vstar_ps[-1,0]
@@ -82,8 +83,11 @@ def nilss(dt, nseg, T_seg, T_ps, u0, nus, rho, integrator, dudt):
 
 
     # find u, w, vstar on all segments
-    [u, w, vstar, w_perp, vstar_perp, f] = pushSeg(nseg, nstep, nus, nc, dt,u0, vstar0, w0, rho, integrator, dudt)
-    # construct M
+    [u, w, vstar, w_perp, vstar_perp, f] = pushSeg(nseg, nstep, nus, nc, dt,u0, vstar0, w0, s, integrator, dudt)
+
+
+    # construct the linear equation system given by the KKT condition of NILSS problem
+    # see the paper on FD-NILSS for a neater method solving the Schur complement of this problem.
     M = np.zeros([(2 * nseg - 1) * nus, (2 * nseg - 1) * nus])
     rhs = np.zeros((2 * nseg - 1) * nus)
     # dL/dmu = 0: nus*(N-1) equations
@@ -122,9 +126,6 @@ def nilss(dt, nseg, T_seg, T_ps, u0, nus, rho, integrator, dudt):
             # rhs 2
             rhs[ii] = -2 * np.einsum(vstar_perp[iseg],[0,1], w_perp[iseg,:,ius],[0,1])
 
-    #plt.spy(M)
-    #plt.show()
-
 
     #lbd = np.linalg.solve(M, rhs)
     lbd = np.linalg.lstsq(M, rhs)
@@ -147,7 +148,9 @@ def nilss(dt, nseg, T_seg, T_ps, u0, nus, rho, integrator, dudt):
             ksi[iseg,i] = np.dot(v[iseg, i], f[iseg, i]) / np.dot(f[iseg, i], f[iseg, i])
 
 
-    # reshape v, v_perp, f, ksi to [nseg*(nstep-1), nc] vector: delete duplicate
+    # reshape v, v_perp, f, ksi to [nseg*(nstep-1), nc] vector: delete duplicate at interfaces. 
+    # check paper for another method which does not requires this reshaping
+    # we do reshaping here to for better intuition: we first recover continuous v then use it
     v_resu = np.zeros([nseg * (nstep - 1) + 1,nc])
     v_resu_perp = np.zeros_like(v_resu)
     f_resu = np.zeros_like(v_resu)
@@ -168,39 +171,26 @@ def nilss(dt, nseg, T_seg, T_ps, u0, nus, rho, integrator, dudt):
     ksi_resu[-1] = ksi[-1,-1]
 
 
-    # compute sensitivity, with special care on fixed point # no done
+    # compute sensitivity
     N_step = nseg * (nstep - 1) + 1
     T_total = N_step * dt
+    # special care on fixed points: conventional tangent method works
     if np.sum((u_resu[-1000:,2] -np.average(u_resu[-1000:,2]))**2)  < 1e-6 * np.sum(u_resu[-1000:,2] **2):
-        dJdrho = v_resu[-1,2]
+        dJds = v_resu[-1,2]
     else:
-        dJdrho = np.sum(v_resu_perp[:,2]) / N_step \
+        # # another formula which uses vperp but has one more term
+        # dJds2 = np.sum(v_resu_perp[:,2]) / N_step \
+                # - (ksi_resu[-1] * u_resu[-1,2] -  ksi_resu[0] * u_resu[0,2]) / T_total \
+                # + (ksi_resu[-1] - ksi_resu[0]) * np.sum(u_resu[:,2]) / N_step / T_total \
+                # + np.sum(f_resu[:,2] * ksi_resu) / N_step   
+        # the formula in the JCP paper of NILSS
+        dJds = np.sum(v_resu[:,2]) / N_step \
                 - (ksi_resu[-1] * u_resu[-1,2] -  ksi_resu[0] * u_resu[0,2]) / T_total \
-                + (ksi_resu[-1] - ksi_resu[0]) * np.sum(u_resu[:,2]) / N_step / T_total \
-                + np.sum(f_resu[:,2] * ksi_resu) / N_step   
+                + (ksi_resu[-1] - ksi_resu[0]) * np.sum(u_resu[:,2]) / N_step / T_total 
 
 
     # calculate Javg
     Javg = np.einsum(u[:,:,2],[0,1],[]) / (nstep * nseg)
 
-    return Javg, dJdrho
 
-    
-    ## plot u
-    ##mpl.rcParams['legend.fontsize'] = 10   
-    #plt.plot(np.ravel(u[:,:,0]), np.ravel(u[:,:,2]))
-    #plt.xlabel('x')
-    #plt.ylabel('y')
-    #plt.show()
-
-    ## plot some debug info
-    #plt.subplot(3,1,1)
-    #plt.plot(np.linalg.norm(v_resu, axis=1))
-    #plt.subplot(3,1,2)
-    #plt.plot(np.linalg.norm(v_resu_perp, axis=1))
-    #plt.subplot(3,1,3)
-    #othor = np.zeros(nseg*(nstep-1)+1)
-    #for i in range(0, nseg*(nstep-1)+1):
-    #    othor[i] = np.dot(v_resu_perp[i,:], f_resu[i,:])
-    #plt.plot(np.abs(othor))
-    #plt.show()
+    return Javg, dJds
