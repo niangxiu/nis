@@ -40,9 +40,10 @@ nus = 1 # number of unstable direction
 
 
 # functions passing to nilss
-def dudt(u, rho):
+def fJJu(u, rho):
     x, y, z = u
-    return np.array([sigma * (y - x), x * (rho - z) - y, x * y - beta * z])
+    return np.array([sigma * (y - x), x * (rho - z) - y, x * y - beta * z]),\
+            z, np.array([0,0,1])
 
 
 def RK4(u, w, vstar, rho):
@@ -67,7 +68,7 @@ def Euler(u, w, vstar, rho):
 for i, rho in enumerate(rho_arr):
     print(rho)
     u0 =  (np.random.rand(nc)-0.5) * 100 + np.array([0,0,50]) #[-10, -10, 60]
-    J, dJdrho = nilss(dt, nseg, T_seg, T_ps, u0, nus, rho, Euler, dudt)
+    J, dJdrho = nilss(dt, nseg, T_seg, T_ps, u0, nus, rho, Euler, fJJu)
     J_arr[i] = J
     dJdrho_arr[i] = dJdrho
 
