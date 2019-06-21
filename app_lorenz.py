@@ -36,7 +36,7 @@ nseg = 10 #number of segments on time interval
 T_seg = 2 # length of each segment
 T_ps = 10 # time of pre-smoothing
 nc = 3 # number of component in u
-nus = 1 # number of unstable direction
+nus = 2 # number of unstable direction
 
 
 # functions passing to nilss
