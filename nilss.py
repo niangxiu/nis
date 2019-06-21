@@ -53,13 +53,12 @@ def pushSeg(nseg, nstep, nus, nc, dt, u0, vstar0, w0, s, integrator, fJJu):
 
         # renormalize at interfaces
         if iseg < nseg - 1:
-            u[iseg + 1, 0] = u[iseg, -1]
-            
             Q_temp, R_temp = np.linalg.qr(w_perp[iseg,-1].T, 'reduced')
             Rs.append(R_temp)
             b_temp = Q_temp.T @ vstar_perp[iseg,-1]
             bs.append(b_temp) 
 
+            u[iseg + 1, 0] = u[iseg, -1]
             w[iseg+1, 0] = Q_temp.T
             vstar[iseg + 1,0] = vstar_perp[iseg,-1] - Q_temp @ b_temp
 
@@ -69,12 +68,8 @@ def pushSeg(nseg, nstep, nus, nc, dt, u0, vstar0, w0, s, integrator, fJJu):
 
 def nilss(dt, nseg, T_seg, T_ps, u0, nus, s, integrator, fJJu):
 
-
     nc = len(u0)
-    nstep = int(T_seg / dt) + 1 # number of step in each time segment
-    v = np.zeros([nseg, nstep, nc])
-    v_perp = np.zeros_like(v)
-    ksi = np.zeros([nseg, nstep])
+    nstep = int(T_seg / dt) + 1 # number of step + 1 in each time segment
     
 
     #  get u0, vstar0, w0 for pre-smoothing
@@ -84,10 +79,10 @@ def nilss(dt, nseg, T_seg, T_ps, u0, nus, s, integrator, fJJu):
         w0[ius] = np.random.rand(nc)
         w0[ius] = w0[ius] / np.linalg.norm(w0[ius])
 
-
     # push forward u to a stable attractor
     # get initial value for later integration: value of the first step of the last segment in presmoothing
     nseg_ps = int(T_ps / dt / nstep)
+    assert(nseg_ps >= 2)
     u_ps, w_ps, vstar_ps, _, _, _, _, _, _, _= pushSeg(nseg_ps, nstep, nus, nc, dt, u0, vstar0, w0, s, integrator, fJJu)
     u0 = u_ps[-1,0]
     vstar0 = vstar_ps[-1,0]
@@ -131,17 +126,20 @@ def nilss(dt, nseg, T_seg, T_ps, u0, nus, s, integrator, fJJu):
     # construct B, first off diagonal I, then add Rs
     B = np.eye((nseg-1)*nus, nseg*nus, k=nus)
     B[:, :-nus] -= block_diag(*Rs)
+    set_trace()
 
     # construct b
     b = np.ravel(bs)
 
     # solve
     lbd = np.linalg.solve(-B @ Cinv @ B.T, B @ Cinv @ d + b)
-    a = -Cinv @ (B.T@lbd + d)
+    a = -Cinv @ (B.T @ lbd + d)
     a = a.reshape([nseg, nus])
 
 
-    # calculate v
+    # calculate v and vperp
+    v = np.zeros([nseg, nstep, nc])
+    v_perp = np.zeros(v.shape)
     for iseg in range(nseg):
         v[iseg] = vstar[iseg]
         v_perp[iseg] = vstar_perp[iseg]
@@ -151,6 +149,7 @@ def nilss(dt, nseg, T_seg, T_ps, u0, nus, s, integrator, fJJu):
     
 
     # calculate ksi, only need to use last step in each segment
+    ksi = np.zeros([nseg, nstep])
     for iseg in range(nseg):
         for i in (0, -1):
             ksi[iseg,i] = np.dot(v[iseg, i], f[iseg, i]) / np.dot(f[iseg, i], f[iseg, i])
