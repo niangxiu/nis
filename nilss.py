@@ -27,13 +27,11 @@ def pushSeg(nseg, nstep, nus, nc, dt, u0, vstar0, w0, s, integrator, fJJu):
     w_perp = np.zeros(w.shape)
     Rs = [] #Rs[0] in code = R_1 in paper
     bs = [] #bs[0] in code = b_1 in paper
-
    
     # assign initial value, u[0,0], v*[0,0], w[0,0]
     u[0,0] = u0
     vstar[0,0] = vstar0
     w[0,0] = w0
-
 
     # push forward
     for iseg in range(0, nseg):
@@ -52,55 +50,44 @@ def pushSeg(nseg, nstep, nus, nc, dt, u0, vstar0, w0, s, integrator, fJJu):
                 w_perp[iseg, i, ius] = w[iseg, i,ius] - np.dot(w[iseg, i, ius], f[iseg, i]) / np.dot(f[iseg, i], f[iseg, i]) * f[iseg, i]
 
         # renormalize at interfaces
+        Q_temp, R_temp = np.linalg.qr(w_perp[iseg,-1].T, 'reduced')
+        Rs.append(R_temp)
+        b_temp = Q_temp.T @ vstar_perp[iseg,-1]
+        bs.append(b_temp)
+        p_temp = vstar_perp[iseg,-1] - Q_temp @ b_temp
         if iseg < nseg - 1:
-            Q_temp, R_temp = np.linalg.qr(w_perp[iseg,-1].T, 'reduced')
-            Rs.append(R_temp)
-            b_temp = Q_temp.T @ vstar_perp[iseg,-1]
-            bs.append(b_temp) 
-
-            u[iseg + 1, 0] = u[iseg, -1]
+            u[iseg+1, 0] = u[iseg, -1]
             w[iseg+1, 0] = Q_temp.T
-            vstar[iseg + 1,0] = vstar_perp[iseg,-1] - Q_temp @ b_temp
+            vstar[iseg+1,0] = p_temp
+
+    return [u, w, vstar, w_perp, vstar_perp, f, J, dJdu, Rs[:-1], bs[:-1], Q_temp, p_temp]
 
 
-    return [u, w, vstar, w_perp, vstar_perp, f, J, dJdu, Rs, bs]
-
-
-def nilss(dt, nseg, T_seg, T_ps, u0, nus, s, integrator, fJJu):
+def nilss(dt, nseg, T_seg, nseg_ps, u0, nus, s, integrator, fJJu):
 
     nc = len(u0)
-    nstep = int(T_seg / dt) + 1 # number of step + 1 in each time segment
+    nstep = int(round(T_seg / dt)) + 1 # number of step + 1 in each time segment
     
-
-    #  get u0, vstar0, w0 for pre-smoothing
+    # push forward u to a stable attractor
     vstar0 = [0.0, 0.0, 0.0]
     w0 = np.zeros([nus,nc])
     for ius in range(0,nus):
         w0[ius] = np.random.rand(nc)
         w0[ius] = w0[ius] / np.linalg.norm(w0[ius])
-
-    # push forward u to a stable attractor
-    # get initial value for later integration: value of the first step of the last segment in presmoothing
-    nseg_ps = int(T_ps / dt / nstep)
-    assert(nseg_ps >= 2)
-    u_ps, w_ps, vstar_ps, _, _, _, _, _, _, _= pushSeg(nseg_ps, nstep, nus, nc, dt, u0, vstar0, w0, s, integrator, fJJu)
-    u0 = u_ps[-1,0]
-    vstar0 = vstar_ps[-1,0]
-    w0 = w_ps[-1,0]
-
+    u_ps, w_ps, vstar_ps, _, _, _, _, _, _, _, Q_ps, p_ps= pushSeg(nseg_ps, nstep, nus, nc, dt, u0, vstar0, w0, s, integrator, fJJu)
+    u0 = u_ps[-1,-1]
+    w0 = Q_ps.T
+    vstar0 = p_ps
 
     # find u, w, vstar on all segments
-    u, w, vstar, w_perp, vstar_perp, f, J, dJdu, Rs, bs = pushSeg(nseg, nstep, nus, nc, dt,u0, vstar0, w0, s, integrator, fJJu)
-
+    u, w, vstar, w_perp, vstar_perp, f, J, dJdu, Rs, bs, _, _ = pushSeg(nseg, nstep, nus, nc, dt,u0, vstar0, w0, s, integrator, fJJu)
 
     # a weight matrix for integration, 0.5 at interfaces
     weight = np.ones(nstep)
     weight[0] = weight[-1] = 0.5
 
-
     # compute Javg
     Javg = np.sum(J*weight[np.newaxis,:]) / (nstep-1) / nseg
-
 
     # Construct Schur complement of the Lagrange multiplier method of the NILSS problem.
     # See the paper on FD-NILSS for this neat method
@@ -126,7 +113,6 @@ def nilss(dt, nseg, T_seg, T_ps, u0, nus, s, integrator, fJJu):
     # construct B, first off diagonal I, then add Rs
     B = np.eye((nseg-1)*nus, nseg*nus, k=nus)
     B[:, :-nus] -= block_diag(*Rs)
-    set_trace()
 
     # construct b
     b = np.ravel(bs)

@@ -8,7 +8,7 @@ from nilss import *
 
 
 rho_lb = 20
-rho_ub = 26
+rho_ub = 22
 sigma = 10
 beta = 8. / 3.
 rho_arr = np.arange(rho_lb, rho_ub + 1)
@@ -26,17 +26,17 @@ def ddt(uwvs, rho):
     dwdt = np.dot(Df, w.T)
     dfdrho = np.array([0, x, 0])
     dvstardt = np.dot(Df, vstar) + dfdrho
-    return np.array([dudt, dwdt.T, dvstardt])
-
+    return [dudt, dwdt.T, dvstardt]
 
 
 # parameter passing to nilss
 dt = 0.001
 nseg = 10 #number of segments on time interval
 T_seg = 2 # length of each segment
-T_ps = 10 # time of pre-smoothing
+nseg_ps = 10 # #segments of pre-smoothing
 nc = 3 # number of component in u
-nus = 1 # number of unstable direction
+nus = 2 # number of unstable direction, notice that nus=3 is illegal since we already mod off the neutral CLV
+assert(nus < nc)
 
 
 # functions passing to nilss
@@ -58,9 +58,9 @@ def RK4(u, w, vstar, rho):
 
 
 def Euler(u, w, vstar, rho):
-    uwvs = np.array([u, w, vstar])
-    k0 = dt * ddt(uwvs, rho) 
-    uwvs_new = uwvs + k0 
+    uwvs = [u, w, vstar]
+    k0 = [dt*vec for vec in ddt(uwvs, rho)] 
+    uwvs_new = [v1+v2 for v1,v2 in zip(uwvs,k0)] 
     return uwvs_new
 
 
@@ -68,7 +68,7 @@ def Euler(u, w, vstar, rho):
 for i, rho in enumerate(rho_arr):
     print(rho)
     u0 =  (np.random.rand(nc)-0.5) * 100 + np.array([0,0,50]) #[-10, -10, 60]
-    J, dJdrho = nilss(dt, nseg, T_seg, T_ps, u0, nus, rho, Euler, fJJu)
+    J, dJdrho = nilss(dt, nseg, T_seg, nseg_ps, u0, nus, rho, Euler, fJJu)
     J_arr[i] = J
     dJdrho_arr[i] = dJdrho
 
